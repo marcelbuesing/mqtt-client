@@ -8,9 +8,18 @@ import Data.Default            (def)
 import Data.Monoid
 import Data.Word               (Word8)
 
-data QoS = AtMostOnce | AtLeastOnce | ExactlyOnce deriving (Eq, Show)
+data QoS =
+  -- | The message is delivered according to the capabilities of the underlying network.
+  -- | No response is sent by the receiver and no retry is performed by the sender.
+  -- | The message arrives at the receiver either once or not at all.
+    AtMostOnce
+  -- | This quality of service ensures that the message arrives at the receiver at least once.
+  | AtLeastOnce
+  -- | This is the highest quality of service, for use when neither loss nor duplication of messages are acceptable.
+  -- | There is an increased overhead associated with this quality of service.
+  | ExactlyOnce deriving (Eq, Show)
 
-data Flag =
+data ControlPacket =
   -- | Client requests a connection to a server
     CONNECT
   -- | Acknowledge connection request
@@ -39,12 +48,12 @@ data Flag =
   | PINGRESP {}
   -- | Disconnect notification
   | DISCONNECT {}
-  deriving Show
+  deriving (Eq, Show)
 
 type RemainingLength = Word8
 
 -- | 2.2 Fixed header
-fixedHeader :: Flag -> RemainingLength -> Builder
+fixedHeader :: ControlPacket -> RemainingLength -> Builder
 fixedHeader f rl =
   let
     type'   = shiftL (controlPacketTypeWord f) 4
@@ -54,7 +63,7 @@ fixedHeader f rl =
   in byte1 <> byte2
 
 -- | 2.2 Fixed header - Flags specific to each MQTT Control Packet type
-fixedHeaderFlags :: Flag -> Word8
+fixedHeaderFlags :: ControlPacket -> Word8
 fixedHeaderFlags (PUBLISH dup qos retain)=
     let retain' = boolWord retain
         qos'    = shiftL (qosWord qos) 1
@@ -75,6 +84,16 @@ fixedHeaderFlags PINGREQ     = 0
 fixedHeaderFlags PINGRESP    = 0
 fixedHeaderFlags DISCONNECT  = 0
 
+-- | encode remaining length using variable length encoding defined in 2.2.3
+encodeRemainingLength :: Word -> Builder
+encodeRemainingLength a =
+  let
+    b = fromIntegral a
+    (quot', rem') = quotRem b 128
+  in if quot' > 0
+    then word8 (rem' .|. 128) <> encodeRemainingLength a
+    else word8 rem'
+
 boolWord :: Bool -> Word8
 boolWord False = 0
 boolWord True = 1
@@ -86,7 +105,7 @@ qosWord AtLeastOnce = 1
 qosWord ExactlyOnce = 2
 
 -- | Control packet types as defined in 2.2.2
-controlPacketTypeWord :: Flag -> Word8
+controlPacketTypeWord :: ControlPacket -> Word8
 controlPacketTypeWord CONNECT     = 1
 controlPacketTypeWord CONNACK     = 2
 controlPacketTypeWord PUBLISH {}  = 3
