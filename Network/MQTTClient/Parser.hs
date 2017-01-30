@@ -1,12 +1,13 @@
 {-# LANGUAGE DataKinds #-}
 module Network.MQTTClient.Parser where
 
-import Data.Bits               ((.|.), shiftL)
-import Data.ByteString         (ByteString(..))
-import Data.ByteString.Builder
-import Data.Default            (def)
-import Data.Monoid
-import Data.Word               (Word8)
+import           Data.Bits               ((.|.), shiftL)
+import           Data.ByteString         (ByteString(..))
+import           Data.ByteString.Builder
+import           Data.Default            (def)
+import           Data.Monoid
+import qualified Data.Text               as T
+import           Data.Word               (Word8, Word16)
 
 data QoS =
   -- | The message is delivered according to the capabilities of the underlying network.
@@ -19,70 +20,107 @@ data QoS =
   -- | There is an increased overhead associated with this quality of service.
   | ExactlyOnce deriving (Eq, Show)
 
+newtype PacketIdentifier = PacketIdentifier Word16 deriving (Eq, Ord, Show)
+
 data ControlPacket =
   -- | Client requests a connection to a server
     CONNECT
+    { _connectPacketIdentifier :: PacketIdentifier
+    }
   -- | Acknowledge connection request
   | CONNACK {}
   -- | Publish message
-  | PUBLISH { _publishDUP :: Bool, _publishQoS :: QoS, _publishRetain :: Bool }
+  | PUBLISH
+    { -- fixed header information
+      _publishFlagsDUP         :: Bool
+    , _publishFlagsQoS         :: QoS
+    , _publishFlagsRetain      :: Bool
+      -- var header information
+    , _publishPacketIdentifier :: Maybe PacketIdentifier
+    , _publishTopic            :: T.Text
+    }
   -- | Publish acknowledgement
-  | PUBACK {}
+  | PUBACK
   -- | Publish received (assured delivery part 1)
-  | PUBREC {}
+  | PUBREC
   -- | Public release (assured delivery part 2)
-  | PUBREL {}
+  | PUBREL
   -- | Publish complete (assured delivery part 3)
-  | PUBCOMP {}
+  | PUBCOMP
   -- | Publish subscribe to topics
-  | SUBSCRIBE {}
+  | SUBSCRIBE
+    { _subscribePacketIdentifier :: PacketIdentifier
+    }
   -- | Subscribe acknowledgement
-  | SUBACK {}
+  | SUBACK
+    { _subackPacketIdentifier :: PacketIdentifier
+    }
   -- | Unsubscribe from topics
-  | UNSUBSCRIBE {}
+  | UNSUBSCRIBE
+    { _unsubscribePacketIdentifier :: PacketIdentifier
+    }
   -- | Unbsubscribe acknowledgement
-  | UNSUBACK {}
+  | UNSUBACK
   -- | PING request
-  | PINGREQ {}
+  | PINGREQ
   -- | PING response
-  | PINGRESP {}
+  | PINGRESP
   -- | Disconnect notification
-  | DISCONNECT {}
+  | DISCONNECT
   deriving (Eq, Show)
 
 type RemainingLength = Word8
 
+encodeIdentifier :: Word16
+encodeIdentifier = undefined
+
 -- | 2.2 Fixed header
 fixedHeader :: ControlPacket -> RemainingLength -> Builder
-fixedHeader f rl =
+fixedHeader cp rl =
   let
-    type'   = shiftL (controlPacketTypeWord f) 4
-    typeFlags' = fixedHeaderFlags f
-    byte1 = word8 (type' .|. typeFlags')
-    byte2 = word8 rl
+    type'      = shiftL (controlPacketTypeWord cp) 4
+    typeFlags' = fixedHeaderFlags cp
+    byte1      = word8 (type' .|. typeFlags')
+    byte2      = word8 rl
   in byte1 <> byte2
 
 -- | 2.2 Fixed header - Flags specific to each MQTT Control Packet type
 fixedHeaderFlags :: ControlPacket -> Word8
-fixedHeaderFlags (PUBLISH dup qos retain)=
+ -- for all others this is currently "reserved" defined in 2.2.2
+fixedHeaderFlags CONNECT {}  = 0
+fixedHeaderFlags CONNACK     = 0
+fixedHeaderFlags (PUBLISH dup qos retain _ _) =
     let retain' = boolWord retain
         qos'    = shiftL (qosWord qos) 1
         dup'    = shiftL (boolWord dup) 3
-    in dup' .|. qos' .|. retain'
- -- for all others this is currently "reserved" defined in 2.2.2
-fixedHeaderFlags CONNECT     = 0
-fixedHeaderFlags CONNACK     = 0
-fixedHeaderFlags PUBACK      = 0
-fixedHeaderFlags PUBREC      = 0
-fixedHeaderFlags PUBREL      = 2
-fixedHeaderFlags PUBCOMP     = 0
-fixedHeaderFlags SUBSCRIBE   = 2
-fixedHeaderFlags SUBACK      = 0
-fixedHeaderFlags UNSUBSCRIBE = 2
-fixedHeaderFlags UNSUBACK    = 0
-fixedHeaderFlags PINGREQ     = 0
-fixedHeaderFlags PINGRESP    = 0
-fixedHeaderFlags DISCONNECT  = 0
+    in (dup' .|. qos' .|. retain')
+fixedHeaderFlags PUBACK         = 0
+fixedHeaderFlags PUBREC         = 0
+fixedHeaderFlags PUBREL         = 2
+fixedHeaderFlags PUBCOMP        = 0
+fixedHeaderFlags SUBSCRIBE {}   = 2
+fixedHeaderFlags SUBACK {}      = 0
+fixedHeaderFlags UNSUBSCRIBE {} = 2
+fixedHeaderFlags UNSUBACK       = 0
+fixedHeaderFlags PINGREQ        = 0
+fixedHeaderFlags PINGRESP       = 0
+fixedHeaderFlags DISCONNECT     = 0
+
+varHeader :: ControlPacket -> Builder
+varHeader CONNECT {}     = word8 0
+varHeader CONNACK        = word8 0
+varHeader (PUBLISH _ _ _ packetIdentifier topic) = word8 0
+varHeader PUBACK         = word8 0
+varHeader PUBREC         = word8 0
+varHeader PUBREL         = word8 2
+varHeader PUBCOMP        = word8 0
+varHeader SUBSCRIBE {}   = word8 2
+varHeader SUBACK {}      = word8 0
+varHeader UNSUBSCRIBE {} = word8 2
+varHeader UNSUBACK       = word8 0
+varHeader PINGREQ        = word8 0
+varHeader PINGRESP       = word8 0
+varHeader DISCONNECT     = word8 0
 
 -- | encode remaining length using variable length encoding defined in 2.2.3
 encodeRemainingLength :: Word -> Builder
@@ -106,17 +144,17 @@ qosWord ExactlyOnce = 2
 
 -- | Control packet types as defined in 2.2.2
 controlPacketTypeWord :: ControlPacket -> Word8
-controlPacketTypeWord CONNECT     = 1
-controlPacketTypeWord CONNACK     = 2
-controlPacketTypeWord PUBLISH {}  = 3
-controlPacketTypeWord PUBACK      = 4
-controlPacketTypeWord PUBREC      = 5
-controlPacketTypeWord PUBREL      = 6
-controlPacketTypeWord PUBCOMP     = 7
-controlPacketTypeWord SUBSCRIBE   = 8
-controlPacketTypeWord SUBACK      = 9
-controlPacketTypeWord UNSUBSCRIBE = 10
-controlPacketTypeWord UNSUBACK    = 11
-controlPacketTypeWord PINGREQ     = 12
-controlPacketTypeWord PINGRESP    = 13
-controlPacketTypeWord DISCONNECT  = 14
+controlPacketTypeWord CONNECT {}     = 1
+controlPacketTypeWord CONNACK        = 2
+controlPacketTypeWord PUBLISH {}     = 3
+controlPacketTypeWord PUBACK         = 4
+controlPacketTypeWord PUBREC         = 5
+controlPacketTypeWord PUBREL         = 6
+controlPacketTypeWord PUBCOMP        = 7
+controlPacketTypeWord SUBSCRIBE {}   = 8
+controlPacketTypeWord SUBACK {}      = 9
+controlPacketTypeWord UNSUBSCRIBE {} = 10
+controlPacketTypeWord UNSUBACK       = 11
+controlPacketTypeWord PINGREQ        = 12
+controlPacketTypeWord PINGRESP       = 13
+controlPacketTypeWord DISCONNECT     = 14
