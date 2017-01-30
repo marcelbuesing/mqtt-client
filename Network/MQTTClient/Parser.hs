@@ -7,6 +7,7 @@ import           Data.ByteString.Builder
 import           Data.Default            (def)
 import           Data.Monoid
 import qualified Data.Text               as T
+import qualified Data.Text.Encoding      as TE
 import           Data.Word               (Word8, Word16)
 
 data QoS =
@@ -32,6 +33,28 @@ data ConnectFlags = ConnectFlags
   , _connectWillFlag      :: Bool
   , _connectCleanSession  :: Bool
   } deriving (Eq, Show)
+
+willMessage :: T.Text -> Builder
+willMessage t = word16BE 0 <> encodeUtf8 t
+
+newtype MQTTTopic = MQTTTopic { _unMQTTTopic :: T.Text } deriving (Eq, Show)
+
+data ConnectPayload = ConnectPayload
+  {
+  -- | 3.1.3.1 Client identifier
+    _connectPayloadClientId    :: MQTTClientId
+  -- | 3.1.3.2 Will Topic
+  , _connectPayloadWillTopic   :: MQTTTopic
+  -- | 3.1.3.3 Will Message
+  , _connectPayloadWillMessage :: T.Text
+  -- | 3.1.3.4 User Name
+  , _connectPayloadUserName    :: T.Text
+  -- | 3.1.3.5 Password
+  , _connectPayloadPassword    :: T.Text
+  } deriving (Eq, Show)
+
+willTopic :: Builder
+willTopic = word8 0
 
 protocolName :: Builder
 protocolName =
@@ -59,6 +82,8 @@ connectFlags (ConnectFlags userName pass retain qos will clean) =
 -- | KeepAlive is a time interval measured in seconds.
 newtype KeepAlive = KeepAlive { _unKeepAlive :: Word16 } deriving (Eq, Show)
 
+newtype MQTTClientId = MQTTClientId { _unMQTTClientId :: Word16 } deriving (Eq, Show)
+
 keepAlive :: KeepAlive -> Builder
 keepAlive (KeepAlive a) = word16BE a
 
@@ -68,6 +93,7 @@ data ControlPacket =
     { _connectPacketIdentifier :: PacketIdentifier
     , _connectKeepAlive        :: KeepAlive
     , _connectConnectFlags     :: ConnectFlags
+    , _connectPayload          :: ConnectPayload
     }
   -- | Acknowledge connection request
   | CONNACK {}
@@ -113,18 +139,21 @@ data ControlPacket =
 
 type RemainingLength = Word8
 
-encodeIdentifier :: Word16
-encodeIdentifier = undefined
+-- | 1.5.3 UTF-8 encoded strings
+encodeUtf8 :: T.Text -> Builder
+encodeUtf8 t =
+  let len = fromIntegral $ T.length t :: Word16
+  in word16BE len <> TE.encodeUtf8Builder t
+
+mqttClientId :: MQTTClientId -> Builder
+mqttClientId (MQTTClientId m)= word16BE m
 
 -- | 2.2 Fixed header
 fixedHeader :: ControlPacket -> RemainingLength -> Builder
 fixedHeader cp rl =
-  let
-    type'      = shiftL (controlPacketTypeWord cp) 4
-    typeFlags' = fixedHeaderFlags cp
-    byte1      = word8 (type' .|. typeFlags')
-    byte2      = word8 rl
-  in byte1 <> byte2
+  let type'      = shiftL (controlPacketTypeWord cp) 4
+      typeFlags' = fixedHeaderFlags cp
+  in word8 (type' .|. typeFlags') <> word8 rl
 
 -- | 2.2 Fixed header - Flags specific to each MQTT Control Packet type
 fixedHeaderFlags :: ControlPacket -> Word8
@@ -149,7 +178,8 @@ fixedHeaderFlags PINGRESP       = 0
 fixedHeaderFlags DISCONNECT     = 0
 
 varHeader :: ControlPacket -> Builder
-varHeader (CONNECT identifier keepAlive' flags) =
+-- | 3.2.2
+varHeader (CONNECT identifier keepAlive' flags _) =
      protocolName
   <> protocolLevel_3_1_1
   <> connectFlags flags
@@ -167,6 +197,29 @@ varHeader UNSUBACK       = word8 0
 varHeader PINGREQ        = word8 0
 varHeader PINGRESP       = word8 0
 varHeader DISCONNECT     = word8 0
+
+payload :: ControlPacket -> Builder
+-- | 3.2.2
+payload (CONNECT _ _ _ payload) =
+  let ci   = mqttClientId $ _connectPayloadClientId payload :: Builder
+      wt   = encodeUtf8   $ _unMQTTTopic $ _connectPayloadWillTopic payload  :: Builder
+      wm   = willMessage  $ _connectPayloadWillMessage payload :: Builder
+      un   = encodeUtf8   $ _connectPayloadUserName payload :: Builder
+      pass = encodeUtf8   $ _connectPayloadPassword payload :: Builder
+  in  ci <> wt <> wm <> un <> pass
+payload CONNACK        = word8 0
+payload (PUBLISH _ _ _ packetIdentifier topic) = word8 0
+payload PUBACK         = word8 0
+payload PUBREC         = word8 0
+payload PUBREL         = word8 0
+payload PUBCOMP        = word8 0
+payload SUBSCRIBE {}   = word8 0
+payload SUBACK {}      = word8 0
+payload UNSUBSCRIBE {} = word8 0
+payload UNSUBACK       = word8 0
+payload PINGREQ        = word8 0
+payload PINGRESP       = word8 0
+payload DISCONNECT     = word8 0
 
 -- | encode remaining length using variable length encoding defined in 2.2.3
 encodeRemainingLength :: Word -> Builder
