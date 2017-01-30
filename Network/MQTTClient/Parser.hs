@@ -22,10 +22,52 @@ data QoS =
 
 newtype PacketIdentifier = PacketIdentifier Word16 deriving (Eq, Ord, Show)
 
+newtype ProtocolLevel = ProtocolLevel Int
+
+data ConnectFlags = ConnectFlags
+  { _connectUserNameFlag :: Bool
+  , _connectPasswordFlag  :: Bool
+  , _connectWillRetain    :: Bool
+  , _connectWillQoS       :: QoS
+  , _connectWillFlag      :: Bool
+  , _connectCleanSession  :: Bool
+  } deriving (Eq, Show)
+
+protocolName :: Builder
+protocolName =
+     word8 (0x0 :: Word8)
+  <> word8 (0x4  :: Word8)
+  <> word8 (0x4D :: Word8)
+  <> word8 (0x51 :: Word8)
+  <> word8 (0x54 :: Word8)
+  <> word8 (0x54 :: Word8)
+
+protocolLevel_3_1_1 :: Builder
+protocolLevel_3_1_1 = word8 0x04
+
+connectFlags :: ConnectFlags -> Builder
+connectFlags (ConnectFlags userName pass retain qos will clean) =
+  let
+    userName' = shiftL (boolWord userName) 7
+    pass'     = shiftL (boolWord pass) 6
+    retain'   = shiftL (boolWord retain) 5
+    qos'      = shiftL (qosWord qos) 3
+    will'     = shiftL (boolWord will) 2
+    clean'    = shiftL (boolWord clean) 1
+  in word8 $ userName' .|. pass' .|. retain' .|. qos' .|. will' .|. clean'
+
+-- | KeepAlive is a time interval measured in seconds.
+newtype KeepAlive = KeepAlive { _unKeepAlive :: Word16 } deriving (Eq, Show)
+
+keepAlive :: KeepAlive -> Builder
+keepAlive (KeepAlive a) = word16BE a
+
 data ControlPacket =
   -- | Client requests a connection to a server
     CONNECT
     { _connectPacketIdentifier :: PacketIdentifier
+    , _connectKeepAlive        :: KeepAlive
+    , _connectConnectFlags     :: ConnectFlags
     }
   -- | Acknowledge connection request
   | CONNACK {}
@@ -86,8 +128,8 @@ fixedHeader cp rl =
 
 -- | 2.2 Fixed header - Flags specific to each MQTT Control Packet type
 fixedHeaderFlags :: ControlPacket -> Word8
- -- for all others this is currently "reserved" defined in 2.2.2
-fixedHeaderFlags CONNECT {}  = 0
+fixedHeaderFlags CONNECT {} = 0
+ -- for most this is currently "reserved" defined in 2.2.2
 fixedHeaderFlags CONNACK     = 0
 fixedHeaderFlags (PUBLISH dup qos retain _ _) =
     let retain' = boolWord retain
@@ -107,7 +149,11 @@ fixedHeaderFlags PINGRESP       = 0
 fixedHeaderFlags DISCONNECT     = 0
 
 varHeader :: ControlPacket -> Builder
-varHeader CONNECT {}     = word8 0
+varHeader (CONNECT identifier keepAlive' flags) =
+     protocolName
+  <> protocolLevel_3_1_1
+  <> connectFlags flags
+  <> keepAlive keepAlive'
 varHeader CONNACK        = word8 0
 varHeader (PUBLISH _ _ _ packetIdentifier topic) = word8 0
 varHeader PUBACK         = word8 0
