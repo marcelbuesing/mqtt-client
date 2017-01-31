@@ -1,5 +1,5 @@
 {-# LANGUAGE DataKinds #-}
-module Network.MQTTClient.Parser where
+module Network.MQTTClient.Encoding where
 
 import           Data.Bits               ((.|.), shiftL)
 import           Data.ByteString         as BS
