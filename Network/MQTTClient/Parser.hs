@@ -2,9 +2,12 @@
 module Network.MQTTClient.Parser where
 
 import           Data.Bits               ((.|.), shiftL)
-import           Data.ByteString         (ByteString(..))
+import           Data.ByteString         as BS
+import           Data.ByteString.Lazy    as BSL
 import           Data.ByteString.Builder
+import           Data.ByteString.Builder.Extra (BufferWriter)
 import           Data.Default            (def)
+import           Data.Maybe              (fromMaybe)
 import           Data.Monoid
 import qualified Data.Text               as T
 import qualified Data.Text.Encoding      as TE
@@ -106,6 +109,9 @@ data ControlPacket =
       -- var header information
     , _publishPacketIdentifier :: Maybe PacketIdentifier
     , _publishTopic            :: T.Text
+   -- | 3.3.3 The Payload contains the Application Message that is being published.
+   -- | The content and format of the data is application specific.
+    , _publicPayload           :: BS.ByteString
     }
   -- | Publish acknowledgement
   | PUBACK
@@ -139,6 +145,13 @@ data ControlPacket =
 
 type RemainingLength = Word8
 
+controlPacket :: ControlPacket -> BSL.ByteString
+controlPacket cp =
+  let fixedHeader' len = toLazyByteString $ fixedHeader cp len
+      body             = toLazyByteString (varHeader cp <> payload cp)
+      remainingLength  = fromIntegral $ BSL.length body
+  in fixedHeader' remainingLength <> body
+
 -- | 1.5.3 UTF-8 encoded strings
 encodeUtf8 :: T.Text -> Builder
 encodeUtf8 t =
@@ -148,6 +161,9 @@ encodeUtf8 t =
 mqttClientId :: MQTTClientId -> Builder
 mqttClientId (MQTTClientId m)= word16BE m
 
+packetIdentifier :: PacketIdentifier -> Builder
+packetIdentifier (PacketIdentifier pi) = word16BE pi
+
 -- | 2.2 Fixed header
 fixedHeader :: ControlPacket -> RemainingLength -> Builder
 fixedHeader cp rl =
@@ -156,26 +172,30 @@ fixedHeader cp rl =
   in word8 (type' .|. typeFlags') <> word8 rl
 
 -- | 2.2 Fixed header - Flags specific to each MQTT Control Packet type
+-- for most this is currently "reserved" defined in 2.2.2
 fixedHeaderFlags :: ControlPacket -> Word8
-fixedHeaderFlags CONNECT {} = 0
- -- for most this is currently "reserved" defined in 2.2.2
-fixedHeaderFlags CONNACK     = 0
-fixedHeaderFlags (PUBLISH dup qos retain _ _) =
+fixedHeaderFlags CONNECT {} = 0x0
+fixedHeaderFlags CONNACK     = 0x0
+fixedHeaderFlags (PUBLISH dup qos retain _ _ _) =
     let retain' = boolWord retain
         qos'    = shiftL (qosWord qos) 1
         dup'    = shiftL (boolWord dup) 3
     in (dup' .|. qos' .|. retain')
-fixedHeaderFlags PUBACK         = 0
-fixedHeaderFlags PUBREC         = 0
-fixedHeaderFlags PUBREL         = 2
-fixedHeaderFlags PUBCOMP        = 0
-fixedHeaderFlags SUBSCRIBE {}   = 2
-fixedHeaderFlags SUBACK {}      = 0
-fixedHeaderFlags UNSUBSCRIBE {} = 2
-fixedHeaderFlags UNSUBACK       = 0
-fixedHeaderFlags PINGREQ        = 0
-fixedHeaderFlags PINGRESP       = 0
-fixedHeaderFlags DISCONNECT     = 0
+fixedHeaderFlags PUBACK         = 0x0
+fixedHeaderFlags PUBREC         = 0x0
+fixedHeaderFlags PUBREL         = 0x2
+fixedHeaderFlags PUBCOMP        = 0x0
+fixedHeaderFlags SUBSCRIBE {}   = 0x2
+fixedHeaderFlags SUBACK {}      = 0x0
+fixedHeaderFlags UNSUBSCRIBE {} = 0x2
+fixedHeaderFlags UNSUBACK       = 0x0
+fixedHeaderFlags PINGREQ        = 0x0
+fixedHeaderFlags PINGRESP       = 0x0
+fixedHeaderFlags DISCONNECT     = 0x0
+
+-- | 2.3.1
+packetIdentifierRequired :: QoS -> Bool
+packetIdentifierRequired qos = qos == AtLeastOnce || qos == ExactlyOnce
 
 varHeader :: ControlPacket -> Builder
 -- | 3.2.2
@@ -185,7 +205,13 @@ varHeader (CONNECT identifier keepAlive' flags _) =
   <> connectFlags flags
   <> keepAlive keepAlive'
 varHeader CONNACK        = word8 0
-varHeader (PUBLISH _ _ _ packetIdentifier topic) = word8 0
+varHeader (PUBLISH _ qos _ packetIdentifier' topic _) =
+  let topic'      = encodeUtf8 topic
+      identifier' =
+        if packetIdentifierRequired qos -- 2.3.1
+        then fromMaybe mempty (packetIdentifier <$> packetIdentifier')
+        else mempty
+  in  topic' <> identifier'
 varHeader PUBACK         = word8 0
 varHeader PUBREC         = word8 0
 varHeader PUBREL         = word8 2
@@ -208,7 +234,8 @@ payload (CONNECT _ _ _ payload) =
       pass = encodeUtf8   $ _connectPayloadPassword payload :: Builder
   in  ci <> wt <> wm <> un <> pass
 payload CONNACK        = word8 0
-payload (PUBLISH _ _ _ packetIdentifier topic) = word8 0
+payload (PUBLISH _ _ _ _ _ payload) =
+  byteString payload
 payload PUBACK         = word8 0
 payload PUBREC         = word8 0
 payload PUBREL         = word8 0
