@@ -47,18 +47,40 @@ data ConnectPayload = ConnectPayload
 -- | KeepAlive is a time interval measured in seconds.
 newtype KeepAlive = KeepAlive { _unKeepAlive :: Word16 } deriving (Eq, Show)
 
-newtype MQTTClientId = MQTTClientId { _unMQTTClientId :: Word16 } deriving (Eq, Show)
+newtype MQTTClientId = MQTTClientId { _unMQTTClientId ::T.Text } deriving (Eq, Show)
+
+type RemainingLength = Word8
+
+-- | 3.2.2.3 Connect Return code
+data ConnectReturnCode =
+    ConnectionAccepted
+  -- | The Server does not support the level of the MQTT protocol requested by the Client
+  | UnacceptableProtocol
+  -- | The Client identifier is correct UTF-8 but not allowed by the Server.
+  | IdentifierRejected
+  -- | The Network Connection has been made but the MQTT service is unavailable.
+  | ServerUnavailable
+  -- | The data in the user name or password is malformed.
+  | BadUserNameOrPassword
+  -- | The Client is not authorized to connect.
+  | NotAuthorized
+  deriving (Eq, Show)
 
 data ControlPacket =
   -- | Client requests a connection to a server
     CONNECT
-    { _connectPacketIdentifier :: PacketIdentifier
-    , _connectKeepAlive        :: KeepAlive
+    { _connectKeepAlive        :: KeepAlive
     , _connectConnectFlags     :: ConnectFlags
     , _connectPayload          :: ConnectPayload
     }
   -- | Acknowledge connection request
-  | CONNACK {}
+  | CONNACK
+    { -- | The Session Present flag enables a Client to establish whether the Client and Server
+    -- | have a consistent view about whether there is already stored Session state.
+    _connackSessionPresent :: Bool
+    -- | 3.2.2.3
+  , _connackReturnCode     :: ConnectReturnCode
+    }
   -- | Publish message
   | PUBLISH
     { -- fixed header information
@@ -102,4 +124,3 @@ data ControlPacket =
   | DISCONNECT
   deriving (Eq, Show)
 
-type RemainingLength = Word8

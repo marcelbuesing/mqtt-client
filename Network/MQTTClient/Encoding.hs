@@ -15,6 +15,12 @@ import           Data.Word               (Word8, Word16)
 
 import Network.MQTTClient.Types
 
+controlPacket :: ControlPacket -> BSL.ByteString
+controlPacket cp =
+  let fixedHeader' len = toLazyByteString $ fixedHeader cp len
+      body             = toLazyByteString (varHeader cp <> payload cp)
+      remainingLength  = fromIntegral $ BSL.length body
+  in fixedHeader' remainingLength <> body
 
 willMessage :: T.Text -> Builder
 willMessage t = word16BE 0 <> encodeUtf8 t
@@ -48,13 +54,6 @@ connectFlags (ConnectFlags userName pass retain qos will clean) =
 keepAlive :: KeepAlive -> Builder
 keepAlive (KeepAlive a) = word16BE a
 
-controlPacket :: ControlPacket -> BSL.ByteString
-controlPacket cp =
-  let fixedHeader' len = toLazyByteString $ fixedHeader cp len
-      body             = toLazyByteString (varHeader cp <> payload cp)
-      remainingLength  = fromIntegral $ BSL.length body
-  in fixedHeader' remainingLength <> body
-
 -- | 1.5.3 UTF-8 encoded strings
 encodeUtf8 :: T.Text -> Builder
 encodeUtf8 t =
@@ -62,7 +61,7 @@ encodeUtf8 t =
   in word16BE len <> TE.encodeUtf8Builder t
 
 mqttClientId :: MQTTClientId -> Builder
-mqttClientId (MQTTClientId m)= word16BE m
+mqttClientId (MQTTClientId m)= encodeUtf8 m
 
 packetIdentifier :: PacketIdentifier -> Builder
 packetIdentifier (PacketIdentifier pi) = word16BE pi
@@ -78,7 +77,7 @@ fixedHeader cp rl =
 -- for most this is currently "reserved" defined in 2.2.2
 fixedHeaderFlags :: ControlPacket -> Word8
 fixedHeaderFlags CONNECT {} = 0x0
-fixedHeaderFlags CONNACK     = 0x0
+fixedHeaderFlags CONNACK {} = 0x0
 fixedHeaderFlags (PUBLISH dup qos retain _ _ _) =
     let retain' = boolWord retain
         qos'    = shiftL (qosWord qos) 1
@@ -102,12 +101,12 @@ packetIdentifierRequired qos = qos == AtLeastOnce || qos == ExactlyOnce
 
 varHeader :: ControlPacket -> Builder
 -- | 3.2.2
-varHeader (CONNECT identifier keepAlive' flags _) =
+varHeader (CONNECT keepAlive' flags _) =
      protocolName
   <> protocolLevel_3_1_1
   <> connectFlags flags
   <> keepAlive keepAlive'
-varHeader CONNACK        = word8 0
+varHeader CONNACK {}   = word8 0
 varHeader (PUBLISH _ qos _ packetIdentifier' topic _) =
   let topic'      = encodeUtf8 topic
       identifier' =
@@ -129,14 +128,14 @@ varHeader DISCONNECT     = word8 0
 
 payload :: ControlPacket -> Builder
 -- | 3.2.2
-payload (CONNECT _ _ _ payload) =
+payload (CONNECT _ _ payload) =
   let ci   = mqttClientId $ _connectPayloadClientId payload :: Builder
       wt   = encodeUtf8   $ _unMQTTTopic $ _connectPayloadWillTopic payload  :: Builder
       wm   = willMessage  $ _connectPayloadWillMessage payload :: Builder
       un   = encodeUtf8   $ _connectPayloadUserName payload :: Builder
       pass = encodeUtf8   $ _connectPayloadPassword payload :: Builder
   in  ci <> wt <> wm <> un <> pass
-payload CONNACK        = word8 0
+payload CONNACK {}     = word8 0
 payload (PUBLISH _ _ _ _ _ payload) =
   byteString payload
 payload PUBACK         = word8 0
@@ -174,7 +173,7 @@ qosWord ExactlyOnce = 2
 -- | Control packet types as defined in 2.2.2
 controlPacketTypeWord :: ControlPacket -> Word8
 controlPacketTypeWord CONNECT {}     = 1
-controlPacketTypeWord CONNACK        = 2
+controlPacketTypeWord CONNACK {}     = 2
 controlPacketTypeWord PUBLISH {}     = 3
 controlPacketTypeWord PUBACK         = 4
 controlPacketTypeWord PUBREC         = 5
