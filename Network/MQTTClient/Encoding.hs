@@ -118,7 +118,8 @@ varHeader PUBACK         = word8 0
 varHeader PUBREC         = word8 0
 varHeader PUBREL         = word8 2
 varHeader PUBCOMP        = word8 0
-varHeader SUBSCRIBE {}   = word8 2
+varHeader (SUBSCRIBE packetId _) =
+  packetIdentifier packetId
 varHeader SUBACK {}      = word8 0
 varHeader UNSUBSCRIBE {} = word8 2
 varHeader UNSUBACK       = word8 0
@@ -142,7 +143,9 @@ payload PUBACK         = word8 0
 payload PUBREC         = word8 0
 payload PUBREL         = word8 0
 payload PUBCOMP        = word8 0
-payload SUBSCRIBE {}   = word8 0
+payload (SUBSCRIBE  _ topicFilters ) =
+  let enc (MQTTTopic topic, qos) = encodeUtf8 topic <> word8 (qosWord qos)
+  in Prelude.foldl (\acc tf -> acc <> enc tf) mempty topicFilters
 payload SUBACK {}      = word8 0
 payload UNSUBSCRIBE {} = word8 0
 payload UNSUBACK       = word8 0

@@ -105,6 +105,7 @@ data ControlPacket =
   -- | Publish subscribe to topics
   | SUBSCRIBE
     { _subscribePacketIdentifier :: PacketIdentifier
+    , _subscribeTopicFilter :: [(MQTTTopic, QoS)]
     }
   -- | Subscribe acknowledgement
   | SUBACK
@@ -123,4 +124,3 @@ data ControlPacket =
   -- | Disconnect notification
   | DISCONNECT
   deriving (Eq, Show)
-
