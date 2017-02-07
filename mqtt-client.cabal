@@ -23,6 +23,7 @@ library
   -- other-modules:
   -- other-extensions:
   build-depends:       attoparsec >= 0.13
+                     , attoparsec-binary >= 0.2
                      , base >=4.9 && <4.10
                      , base16-bytestring >= 0.1
                      , bytestring >= 0.10
@@ -42,6 +43,7 @@ test-suite test
   main-is:
     test.hs
   build-depends:    attoparsec >= 0.13
+                  , attoparsec-binary >= 0.2
                   , base >= 4 && < 5
                   , network >= 2.6
                   , tasty >= 0.11

@@ -66,6 +66,20 @@ data ConnectReturnCode =
   | NotAuthorized
   deriving (Eq, Show)
 
+-- | 3.9.3 The payload contains a list of return codes.
+-- | Each return code corresponds to a Topic Filter
+-- | in the SUBSCRIBE Packet being acknowledged.
+data SubAckReturnCode =
+  -- | Success - Maximum QoS 0
+  SuccessMaxQoS0
+  -- | Success - Maximum QoS 1
+  | SuccessMaxQoS1
+  -- | Success - Maximum QoS 2
+  | SuccessMaxQoS2
+  -- | Failure
+  | SubFailure
+  deriving (Eq, Show)
+
 data ControlPacket =
   -- | Client requests a connection to a server
     CONNECT
@@ -110,6 +124,7 @@ data ControlPacket =
   -- | Subscribe acknowledgement
   | SUBACK
     { _subackPacketIdentifier :: PacketIdentifier
+    , _subackReturnCodes      :: [SubAckReturnCode]
     }
   -- | Unsubscribe from topics
   | UNSUBSCRIBE
