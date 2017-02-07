@@ -17,7 +17,7 @@ remainingLength = anyWord8
 
 connack :: Parser ControlPacket
 connack = do
-  _    <- word8 0x2 -- packetType
+  _    <- word8 0x20 -- packetType
   _    <- word8 0x2 -- 3.2.1 apparently this always equals 2
   sessionPresent <- boolWord
   returnCode     <- connectReturnCode

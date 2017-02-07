@@ -24,8 +24,9 @@ unitTests = testGroup "Setup"
       addr' <- addr
       sckt <- MQTT.connect addr'
       _ <-forever $ do
-        r <- NSB.recv sckt 8
+        r <- NSB.recv sckt 1024
         _ <- putStrLn "Reading"
+        _ <- putStrLn $ show r
         parseTest Parser.controlPacket r
       _ <- putStrLn "Closing socket"
       _ <- NS.close sckt
