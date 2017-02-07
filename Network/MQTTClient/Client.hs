@@ -33,23 +33,23 @@ connect addr = do
 
 connectPacket :: ControlPacket
 connectPacket =
-  let keepAlive' = KeepAlive 60
+  let keepAlive' = KeepAlive 120
       flags' =
         ConnectFlags
         { _connectUserNameFlag = False
         , _connectPasswordFlag = False
         , _connectWillRetain   = False
-        , _connectWillQoS      = ExactlyOnce
+        , _connectWillQoS      = AtMostOnce
         , _connectWillFlag     = False
         , _connectCleanSession = True
         }
       payload' =
         ConnectPayload
-        { _connectPayloadClientId = MQTTClientId "lambda-myIdIs"
-        , _connectPayloadWillTopic = MQTTTopic "TESTTOPIC"
-        , _connectPayloadWillMessage = "Oh no!"
-        , _connectPayloadUserName = mempty
-        , _connectPayloadPassword = mempty
+        { _connectPayloadClientId = MQTTClientId "lens_Xmia7hQZN1zKro3ULsukM1FvZhx"
+        , _connectPayloadWillTopic = Nothing
+        , _connectPayloadWillMessage = Nothing
+        , _connectPayloadUserName = Nothing
+        , _connectPayloadPassword = Nothing
         }
   in CONNECT keepAlive' flags' payload'
 

@@ -35,13 +35,13 @@ data ConnectPayload = ConnectPayload
   -- | 3.1.3.1 Client identifier
     _connectPayloadClientId    :: MQTTClientId
   -- | 3.1.3.2 Will Topic
-  , _connectPayloadWillTopic   :: MQTTTopic
+  , _connectPayloadWillTopic   :: Maybe MQTTTopic
   -- | 3.1.3.3 Will Message
-  , _connectPayloadWillMessage :: T.Text
+  , _connectPayloadWillMessage :: Maybe T.Text
   -- | 3.1.3.4 User Name
-  , _connectPayloadUserName    :: T.Text
+  , _connectPayloadUserName    :: Maybe T.Text
   -- | 3.1.3.5 Password
-  , _connectPayloadPassword    :: T.Text
+  , _connectPayloadPassword    :: Maybe T.Text
   } deriving (Eq, Show)
 
 -- | KeepAlive is a time interval measured in seconds.

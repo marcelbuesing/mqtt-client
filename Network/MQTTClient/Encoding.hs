@@ -29,16 +29,13 @@ willTopic :: Builder
 willTopic = word8 0
 
 protocolName :: Builder
-protocolName =
-     word8 (0x0 :: Word8)
-  <> word8 (0x4  :: Word8)
-  <> word8 (0x4D :: Word8)
-  <> word8 (0x51 :: Word8)
-  <> word8 (0x54 :: Word8)
-  <> word8 (0x54 :: Word8)
+protocolName = encodeUtf8 $ T.pack "MQTT"
 
 protocolLevel_3_1_1 :: Builder
 protocolLevel_3_1_1 = word8 0x04
+
+protocolLevel_3_1 :: Builder
+protocolLevel_3_1 = word8 0x03
 
 connectFlags :: ConnectFlags -> Builder
 connectFlags (ConnectFlags userName pass retain qos will clean) =
@@ -71,7 +68,7 @@ fixedHeader :: ControlPacket -> RemainingLength -> Builder
 fixedHeader cp rl =
   let type'      = shiftL (controlPacketTypeWord cp) 4
       typeFlags' = fixedHeaderFlags cp
-  in word8 (type' .|. typeFlags') <> word8 rl
+  in word8 (type' .|. typeFlags') <> encodeRemainingLength rl
 
 -- | 2.2 Fixed header - Flags specific to each MQTT Control Packet type
 -- for most this is currently "reserved" defined in 2.2.2
@@ -130,12 +127,12 @@ varHeader DISCONNECT     = word8 0
 payload :: ControlPacket -> Builder
 -- | 3.2.2
 payload (CONNECT _ _ payload) =
-  let ci   = mqttClientId $ _connectPayloadClientId payload :: Builder
-      wt   = encodeUtf8   $ _unMQTTTopic $ _connectPayloadWillTopic payload  :: Builder
-      wm   = willMessage  $ _connectPayloadWillMessage payload :: Builder
-      un   = encodeUtf8   $ _connectPayloadUserName payload :: Builder
-      pass = encodeUtf8   $ _connectPayloadPassword payload :: Builder
-  in  ci <> wt <> wm <> un <> pass
+  let ci   = mqttClientId $ _connectPayloadClientId payload
+      wt   = fromMaybe mempty $ encodeUtf8 . _unMQTTTopic <$> _connectPayloadWillTopic payload
+      wm   = fromMaybe mempty $ willMessage <$> _connectPayloadWillMessage payload
+      un   = fromMaybe mempty $ encodeUtf8 <$> _connectPayloadUserName payload
+      pass = fromMaybe mempty $ encodeUtf8 <$> _connectPayloadPassword payload
+  in  ci  <> wt <> wm <> un <> pass
 payload CONNACK {}     = word8 0
 payload (PUBLISH _ _ _ _ _ payload) =
   byteString payload
@@ -154,13 +151,12 @@ payload PINGRESP       = word8 0
 payload DISCONNECT     = word8 0
 
 -- | encode remaining length using variable length encoding defined in 2.2.3
-encodeRemainingLength :: Word -> Builder
+encodeRemainingLength :: Word8 -> Builder
 encodeRemainingLength a =
-  let
-    b = fromIntegral a
-    (quot', rem') = quotRem b 128
+  let b = fromIntegral a
+      (quot', rem') = quotRem b 128
   in if quot' > 0
-    then word8 (rem' .|. 128) <> encodeRemainingLength a
+    then word8 (rem' .|. 128) <> encodeRemainingLength quot'
     else word8 rem'
 
 boolWord :: Bool -> Word8
