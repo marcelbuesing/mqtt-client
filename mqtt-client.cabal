@@ -25,7 +25,6 @@ library
   build-depends:       attoparsec >= 0.13
                      , attoparsec-binary >= 0.2
                      , base >=4.9 && <4.10
-                     , base16-bytestring >= 0.1
                      , bytestring >= 0.10
                      , data-default >= 0.7
                      , network >= 2.6
@@ -44,7 +43,13 @@ test-suite test
     test.hs
   build-depends:    attoparsec >= 0.13
                   , attoparsec-binary >= 0.2
+                  , async >= 2.1
                   , base >= 4 && < 5
+                  , base16-bytestring >= 0.1
+                  , bytestring >= 0.10
+                  , conduit >= 1.2
+                  , conduit-extra >= 1.1
+                  , conduit-combinators >= 1.0
                   , network >= 2.6
                   , tasty >= 0.11
                   , tasty-hunit >= 0.9
