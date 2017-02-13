@@ -20,6 +20,7 @@ import qualified Network.Socket             as NS
 
 import qualified Data.Conduit.List as CL
 
+import           Network.MQTTClient.Client as Client
 import           Network.MQTTClient.Parser  as Parser
 import           Network.MQTTClient.Encoding as Encoding
 import           Network.MQTTClient.Types
@@ -48,6 +49,7 @@ initMqtt :: Source IO BS.ByteString
 initMqtt = do
   yield $ toStrict $ Encoding.controlPacket connectPacket
   yield $ toStrict $ Encoding.controlPacket subscribePacket
+  yield $ toStrict $ Client.publish "B" "HI"
 
 unitTests = testGroup "Setup"
   [ testCase "CONNECT" $ do

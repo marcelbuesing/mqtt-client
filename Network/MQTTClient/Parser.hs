@@ -1,10 +1,14 @@
 module Network.MQTTClient.Parser where
 
-import Control.Applicative ((<|>))
+import Control.Applicative ((<|>), many)
 import Control.Monad (void)
-import Data.Attoparsec
+import Data.Attoparsec as A
 import Data.Attoparsec.Binary
-import Data.Word (Word16)
+import Data.Bits
+import Data.Text as T
+import Data.Text.Encoding
+import Data.Text.Encoding.Error (lenientDecode)
+import Data.Word (Word16, Word8)
 
 import Network.MQTTClient.Types
 
@@ -15,10 +19,25 @@ boolWord =
   in true <|> false
 
 remainingLength :: Parser RemainingLength
-remainingLength = anyWord8
+remainingLength = anyWord8 -- TODO properly decode
 
 packetIdentifier :: Parser PacketIdentifier
-packetIdentifier = PacketIdentifier <$> anyWord16be
+packetIdentifier =  PacketIdentifier <$> anyWord16be
+
+packetIdentifierMaybe :: QoS -> Parser (Maybe PacketIdentifier)
+packetIdentifierMaybe qos =
+  if qos /= AtMostOnce
+  then Just <$> packetIdentifier
+  else return $ Nothing
+
+controlPacketType :: Word8 -> Parser Word8
+controlPacketType pre = satisfy (\w -> (shiftL w 4 .&. pre) == pre)
+
+decodeMqttUtf8 :: Parser (Word16, T.Text)
+decodeMqttUtf8 = do
+  len <- anyWord16be
+  txt <- A.take $ fromIntegral len
+  return $ (len, decodeUtf8With lenientDecode txt)
 
 connack :: Parser ControlPacket
 connack = do
@@ -43,7 +62,7 @@ suback = do
   _ <- word8 0x90
   _ <- remainingLength
   pID <- packetIdentifier
-  returnCodes <- many1 subAckReturnCode
+  returnCodes <- A.count 2 subAckReturnCode
   return $ SUBACK pID returnCodes
 
 subAckReturnCode :: Parser SubAckReturnCode
@@ -54,5 +73,21 @@ subAckReturnCode =
   <|> return SuccessMaxQoS2 <$> word8 0x02
   <|> return SubFailure     <$> word8 0x80
 
+publish :: Parser ControlPacket
+publish = do
+  _ <- word8 0x30 -- TODO parse flags
+  remainingLength' <- remainingLength
+  (len, topic)     <- decodeMqttUtf8
+  pID              <- packetIdentifierMaybe AtMostOnce -- TODO use qos from flags
+  payload          <- A.take $ lengthPayload remainingLength' len AtMostOnce  -- TODO use qos from flags
+  return $ PUBLISH False AtMostOnce False Nothing topic payload
+  where
+    lengthPacketIdentifier qos  = if qos == AtMostOnce then 0 else 2
+    lengthTopic lenTopic = 2 + (fromIntegral lenTopic)
+    lengthPayload rl lenTopic qos =
+          (fromIntegral rl) - lengthTopic lenTopic - lengthPacketIdentifier qos
+
 controlPacket ::  Parser ControlPacket
-controlPacket = connack <|> suback
+controlPacket = connack <|> suback <|> publish
+
+

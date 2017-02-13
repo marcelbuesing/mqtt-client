@@ -2,7 +2,8 @@
 
 module Network.MQTTClient.Client where
 
-import           Data.ByteString.Lazy       (toStrict)
+import           Data.ByteString            as BS
+import           Data.ByteString.Lazy       as BSL
 import           Data.Text                  as T
 import           Network (PortNumber)
 import           Network.Socket.ByteString  as NSB
@@ -60,3 +61,7 @@ subscribePacket =
       topics = [(topicA, ExactlyOnce), (topicB, AtLeastOnce)]
       packetId = PacketIdentifier 4903
   in SUBSCRIBE packetId topics
+
+publish :: Text -> BS.ByteString -> BSL.ByteString
+publish topic payload = Encoding.controlPacket $ PUBLISH False AtMostOnce False Nothing topic payload
+
